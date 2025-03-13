@@ -1,0 +1,133 @@
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.STD_LOGIC_ARITH.ALL;
+use IEEE.STD_LOGIC_UNSIGNED.ALL;
+
+entity ShooterGame is
+    Port (
+        clk       : in  std_logic; -- Clock input
+        reset     : in  std_logic; -- Reset button
+        move_left : in  std_logic; -- Move player left
+        move_right: in  std_logic; -- Move player right
+        shoot     : in  std_logic; -- Shoot bullet
+        led_rows  : out std_logic_vector(7 downto 0); -- Rows of the LED matrix
+        led_cols  : out std_logic_vector(7 downto 0)  -- Columns of the LED matrix
+    );
+end ShooterGame;
+
+architecture Behavioral of ShooterGame is
+
+    -- Constants
+    constant ROWS      : integer := 8;
+    constant COLS      : integer := 8;
+
+    -- Signals for game state
+    signal player_pos  : integer range 0 to COLS-1 := 3; -- Player position (column index)
+    signal bullet_row  : integer range 0 to ROWS-1 := 0; -- Bullet row position
+    signal bullet_col  : integer range 0 to COLS-1 := 0; -- Bullet column position
+    signal bullet_active : std_logic := '0'; -- Bullet status (0 = inactive, 1 = active)
+    signal enemy_row   : integer range 0 to ROWS-1 := 0; -- Enemy row position
+    signal enemy_col   : integer range 0 to COLS-1 := 4; -- Enemy column position
+    signal score       : integer := 0; -- Player score
+
+    -- LED matrix signals
+    signal led_matrix  : std_logic_vector(ROWS*COLS-1 downto 0) := (others => '0'); -- 8x8 LED matrix
+    signal row_counter : integer range 0 to ROWS-1 := 0; -- Row counter for multiplexing
+
+begin
+
+    -- Process for updating the game state
+    process(clk, reset)
+    begin
+        if reset = '1' then
+            -- Reset game state
+            player_pos <= 3;
+            bullet_active <= '0';
+            enemy_row <= 0;
+            enemy_col <= 4;
+            score <= 0;
+        elsif rising_edge(clk) then
+            -- Move player left
+            if move_left = '1' and player_pos > 0 then
+                player_pos <= player_pos - 1;
+            end if;
+
+            -- Move player right
+            if move_right = '1' and player_pos < COLS-1 then
+                player_pos <= player_pos + 1;
+            end if;
+
+            -- Shoot bullet
+            if shoot = '1' and bullet_active = '0' then
+                bullet_active <= '1';
+                bullet_row <= ROWS-2; -- Start bullet just above the player
+                bullet_col <= player_pos;
+            end if;
+
+            -- Move bullet upward
+            if bullet_active = '1' then
+                if bullet_row > 0 then
+                    bullet_row <= bullet_row - 1;
+                else
+                    bullet_active <= '0'; -- Deactivate bullet if it goes off-screen
+                end if;
+            end if;
+
+            -- Move enemy downward
+            if enemy_row < ROWS-1 then
+                enemy_row <= enemy_row + 1;
+            else
+                enemy_row <= 0; -- Reset enemy position
+                enemy_col <= enemy_col + 1; -- Move enemy to the next column
+                if enemy_col >= COLS then
+                    enemy_col <= 0; -- Wrap around to the first column
+                end if;
+            end if;
+
+            -- Check for collisions
+            if bullet_active = '1' and bullet_row = enemy_row and bullet_col = enemy_col then
+                bullet_active <= '0'; -- Deactivate bullet
+                enemy_row <= 0; -- Reset enemy position
+                enemy_col <= enemy_col + 1; -- Move enemy to the next column
+                if enemy_col >= COLS then
+                    enemy_col <= 0; -- Wrap around to the first column
+                end if;
+                score <= score + 1; -- Increment score
+            end if;
+        end if;
+    end process;
+
+    -- Process for updating the LED matrix
+    process(row_counter, player_pos, bullet_active, bullet_row, bullet_col, enemy_row, enemy_col)
+    begin
+        led_matrix <= (others => '0'); -- Clear the matrix
+
+        -- Draw the player
+        led_matrix(player_pos + ROWS*7) <= '1';
+
+        -- Draw the bullet
+        if bullet_active = '1' then
+            led_matrix(bullet_col + ROWS*bullet_row) <= '1';
+        end if;
+
+        -- Draw the enemy
+        led_matrix(enemy_col + ROWS*enemy_row) <= '1';
+    end process;
+
+    -- Process for multiplexing the LED matrix
+    process(clk)
+    begin
+        if rising_edge(clk) then
+            if row_counter < ROWS-1 then
+                row_counter <= row_counter + 1;
+            else
+                row_counter <= 0;
+            end if;
+        end if;
+    end process;
+
+    -- Output the LED matrix rows and columns
+    led_rows <= "1111111" & not std_logic_vector(to_unsigned(row_counter, 1));
+    led_cols <= led_matrix((row_counter+1)*COLS-1 downto row_counter*COLS);
+
+end Behavioral;
